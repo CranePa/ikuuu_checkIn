@@ -8,6 +8,9 @@ import base64
 import requests
 from datetime import datetime
 
+# 保证能正确加载项目根目录模块
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 if hasattr(sys.stdout, 'reconfigure'):
     try:
         sys.stdout.reconfigure(encoding='utf-8')

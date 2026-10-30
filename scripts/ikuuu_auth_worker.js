@@ -385,8 +385,8 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn") {
 
 // 辅助计算 Cookie 有效期剩余描述
 function parseCookieExpireDesc(cookieStr) {
-  const m = cookieStr.match(/expire_in=(\\d+)/);
-  if (!m) return "有效期未知 (长期有效)";
+  const m = cookieStr.match(/expire_in=(\d+)/);
+  if (!m) return "有效期未知";
   const expTs = parseInt(m[1], 10);
   const nowTs = Math.floor(Date.now() / 1000);
   const diffSec = expTs - nowTs;
