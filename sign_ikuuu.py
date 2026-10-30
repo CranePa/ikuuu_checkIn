@@ -166,6 +166,51 @@ def mask_email(email):
 
     return f'{masked}@{domain}'
 
+def get_cookie_expire_info(cookie_str):
+    """
+    解析 Cookie 字符串中的 expire_in 时间戳，并精确计算剩余天数与小时
+    """
+    if not cookie_str:
+        return {'has_expire': False, 'desc': '未知', 'is_warning': False}
+
+    m = re.search(r'expire_in=(\d+)', cookie_str)
+    if not m:
+        return {'has_expire': False, 'desc': '未知', 'is_warning': False}
+
+    try:
+        exp_ts = int(m.group(1))
+        exp_dt = datetime.fromtimestamp(exp_ts)
+        now = datetime.now()
+        delta = exp_dt - now
+
+        if delta.total_seconds() > 0:
+            days = delta.days
+            hours = delta.seconds // 3600
+            desc = f"剩余 {days} 天 {hours} 小时"
+            is_warning = (days < 2)
+            return {
+                'has_expire': True,
+                'expire_ts': exp_ts,
+                'expire_dt': exp_dt,
+                'days': days,
+                'hours': hours,
+                'desc': desc,
+                'is_warning': is_warning
+            }
+        else:
+            return {
+                'has_expire': True,
+                'expire_ts': exp_ts,
+                'expire_dt': exp_dt,
+                'days': 0,
+                'hours': 0,
+                'desc': f"⚠️ 已于 {exp_dt.strftime('%m-%d %H:%M')} 过期",
+                'is_warning': True
+            }
+    except Exception as e:
+        return {'has_expire': False, 'desc': f'解析异常: {e}', 'is_warning': False}
+
+
 
 # ─────────────────────────────────────────────
 # 自动获取与探测最新可用域名
@@ -538,6 +583,7 @@ def checkin_with_cookie(cookie_str, base_url):
     使用 Cookie 凭据直接免密签到并抓取账户资产
     完全绕过登录页面和极验图片验证码，生产级高可用
     """
+    exp_info = get_cookie_expire_info(cookie_str)
     record = {
         'real_email': 'Cookie账号',
         'safe_email': 'Cookie账号',
@@ -546,7 +592,9 @@ def checkin_with_cookie(cookie_str, base_url):
         'traffic_remain': '未知',
         'traffic_used': '',
         'traffic_total': '',
-        'expire_status': '未知'
+        'expire_status': '未知',
+        'cookie_expire': exp_info.get('desc', '未知'),
+        'cookie_warning': exp_info.get('is_warning', False)
     }
 
     session = requests.Session()
@@ -650,7 +698,9 @@ def checkin_one_account(email, passwd, base_url):
         'status_text': '未知',
         'traffic_remain': '未知',
         'traffic_detail': '',
-        'expire_status': '未知'
+        'expire_status': '未知',
+        'cookie_expire': '未知',
+        'cookie_warning': False
     }
 
     try:
@@ -659,12 +709,15 @@ def checkin_one_account(email, passwd, base_url):
         if not pw_cookies:
             raise Exception('登录未成功（站点开启了图片验证码拦截），请运行 scripts/login_helper.py 获取 Cookie 并配置 IKUUU_COOKIE 免密直签')
 
-        # 成功获取 Cookie 时自动在本地保存一份
+        # 成功获取 Cookie 时自动在本地保存一份并解析过期时间
         try:
             cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in pw_cookies if 'name' in c and 'value' in c])
             cookie_file = os.path.join(os.path.dirname(__file__), 'scripts', 'local_cookie.txt')
             with open(cookie_file, 'w', encoding='utf-8') as f:
                 f.write(cookie_str)
+            exp_info = get_cookie_expire_info(cookie_str)
+            record['cookie_expire'] = exp_info.get('desc', '未知')
+            record['cookie_warning'] = exp_info.get('is_warning', False)
         except Exception:
             pass
 
@@ -769,6 +822,11 @@ def build_notification_message(records, base_url, masked=False):
         if total_traffic and total_traffic != '未知':
             lines.append(f"📦 总量: {total_traffic}")
         lines.append(f"⏳ 到期: {expire}")
+        cookie_exp = r.get('cookie_expire')
+        if cookie_exp and cookie_exp != '未知':
+            lines.append(f"🔑 凭据: {cookie_exp}")
+            if r.get('cookie_warning'):
+                lines.append("⚠️ 提示: Cookie即将到期，请在桌面助手重新登录")
 
         if idx < total:
             lines.append("──────────────")

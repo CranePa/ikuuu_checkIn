@@ -1,0 +1,49 @@
+name: 自动更新 Cookie 并执行验证签到
+
+on:
+  repository_dispatch:
+    types: [update_cookie]
+  workflow_dispatch:
+    inputs:
+      cookie:
+        description: 'iKuuu 最新登录 Cookie'
+        required: true
+
+jobs:
+  sync_cookie_job:
+    name: 同步最新凭据并执行签到
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码仓库
+        uses: actions/checkout@v4
+
+      - name: 配置 Python 环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖
+        run: |
+          pip install requests pynacl playwright
+          playwright install --with-deps chromium
+
+      - name: 同步 Secret 并推送最新签到通知
+        env:
+          NEW_COOKIE: ${{ github.event.client_payload.cookie || inputs.cookie }}
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          IKUUU_DOMAIN: ${{ secrets.IKUUU_DOMAIN }}
+          # 企业微信单变量合并配置
+          WECHAT_WORK: ${{ secrets.WECHAT_WORK }}
+          WX_CONFIG: ${{ secrets.WX_CONFIG }}
+          # 企业微信旧独立变量
+          WX_CORPID: ${{ secrets.WX_CORPID }}
+          WX_CORPSECRET: ${{ secrets.WX_CORPSECRET }}
+          WX_AGENTID: ${{ secrets.WX_AGENTID }}
+          # 企业微信群机器人
+          WX_WEBHOOK: ${{ secrets.WX_WEBHOOK }}
+          # PushPlus 推送
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          PUSH_PLUS_TOKEN: ${{ secrets.PUSH_PLUS_TOKEN }}
+        run: python scripts/sync_cookie_secret.py

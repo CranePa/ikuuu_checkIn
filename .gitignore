@@ -1,0 +1,9 @@
+.idea/
+.vscode/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+local_cookie.txt
+scripts/local_cookie.txt
