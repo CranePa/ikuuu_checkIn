@@ -1,10 +1,10 @@
 /**
  * Cloudflare Worker: iKuuu 登录与 Cookie 自动更新网关
  * 专为 iOS「添加到主屏幕」优化的 PWA Web App
+ * 支持：自动预填凭据、记住我(7天Cookie)、极验v4联动、邮箱2FA验证码无缝接力、剪贴板一键同步
  */
 
-// 渲染移动端 Web App 界面 (完美适配 iOS 刘海/灵动岛全屏 PWA)
-function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail = "", defaultPassword = "") {
+function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail = "670607946@qq.com", defaultPassword = "") {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -67,7 +67,7 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
       margin-bottom: 6px;
       font-weight: 500;
     }
-    input[type="email"], input[type="password"], textarea {
+    input[type="email"], input[type="password"], input[type="text"], textarea {
       width: 100%;
       background: #0f172a;
       border: 1px solid #334155;
@@ -150,6 +150,23 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
       box-shadow: none;
       cursor: not-allowed;
     }
+    .btn-verify {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: white;
+      border: none;
+      border-radius: 14px;
+      width: 100%;
+      padding: 16px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
+    }
+    .btn-verify:active { transform: scale(0.98); opacity: 0.9; }
     .divider {
       display: flex;
       align-items: center;
@@ -221,7 +238,6 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
     .pwa-tip { font-size: 12px; color: #64748b; line-height: 1.6; }
     .pwa-tip b { color: #94a3b8; }
   </style>
-  <!-- 引入 Geetest 官方验证组件 -->
   <script src="https://static.geetest.com/v4/gt4.js"></script>
 </head>
 <body>
@@ -253,7 +269,25 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
       <span class="remember-badge">✓ 7天长效 Cookie</span>
     </div>
 
-    <div class="captcha-wrap">
+    <!-- 邮箱验证码输入区域（遇到异地风控时自动展开） -->
+    <div id="email-code-box" style="display: none; margin-bottom: 16px;">
+      <div style="background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 12px; padding: 12px; margin-bottom: 12px;">
+        <p style="font-size: 13px; color: #38bdf8; line-height: 1.5;">
+          🛡️ <b>已触发异地登录保护</b><br>
+          验证码已发送至您的 QQ 邮箱，请输入收到的 <b>6 位验证码</b> 即可完成同步：
+        </p>
+      </div>
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label for="email-code" style="color: #38bdf8; font-weight: 600;">📧 6 位邮箱验证码</label>
+        <input type="text" id="email-code" placeholder="输入 6 位数字验证码" maxlength="6" inputmode="numeric" style="letter-spacing: 5px; font-size: 20px; text-align: center; font-weight: 700; color: #38bdf8;">
+      </div>
+      <button class="btn-verify" id="btn-verify-email" onclick="handleVerifyEmailCode()">
+        ✅ 提交邮箱验证码并同步
+      </button>
+    </div>
+
+    <!-- 极验点选验证码容器 -->
+    <div class="captcha-wrap" id="captcha-wrap-box">
       <div id="captcha-box" class="embed-captcha">
         <div class="geetest-placeholder">⏳ 正在加载极验验证码...</div>
       </div>
@@ -274,23 +308,16 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
 
   <div class="footer-box">
     <p class="pwa-tip">
-      💡 <b>推荐使用方式</b>：点击 Safari 底部 <b>分享</b> 按钮<br>
-      选择 <b>「添加到主屏幕」</b>，随时在手机桌面点一下即可更新！<br>
-      更新完成后企业微信将自动推送最新剩余有效期通知。
+      💡 <b>提示</b>：由于云端网关位于海外服务器，首次登录若提示邮箱验证属<b>官方正常安全策略</b>。<br>
+      输入 QQ 邮箱收到的 6 位数字即可一键搞定！<br>
+      或者也可在手机 Safari 中登录后点击<b>「读取剪贴板 Cookie 并同步」</b>。
     </p>
   </div>
 
   <script>
     let geetestInstance = null;
     let captchaResult = null;
-
-    // 自动回填本地记住的账号
-    try {
-      const savedEmail = localStorage.getItem('ikuuu_saved_email');
-      if (savedEmail) {
-        document.getElementById('email').value = savedEmail;
-      }
-    } catch(e) {}
+    let savedSessionCookie = "";
 
     // 初始化 Geetest v4
     function initCaptcha() {
@@ -337,13 +364,9 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
       }
 
       if (!captchaResult || !captchaResult.lot_number) {
-        alert('请先点击并完成上方的图形验证码！');
+        alert('请先点击并完成图形验证码！');
         return;
       }
-
-      try {
-        localStorage.setItem('ikuuu_saved_email', email);
-      } catch(e) {}
 
       statusBox.style.display = 'block';
       statusBox.className = 'status-msg status-loading';
@@ -368,6 +391,20 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
         });
 
         const data = await resp.json();
+
+        // 遇到异地风控：需要输入邮箱验证码
+        if (data.need_email_code) {
+          savedSessionCookie = data.session_cookie || "";
+          document.getElementById('email-code-box').style.display = 'block';
+          document.getElementById('captcha-wrap-box').style.display = 'none';
+          document.getElementById('btn-login').style.display = 'none';
+          document.getElementById('email-code').focus();
+
+          statusBox.className = 'status-msg status-loading';
+          statusBox.innerHTML = '📧 <b>' + data.message + '</b><br>已为您展开上方验证码输入框，输入后点击确定即可完成。';
+          return;
+        }
+
         if (resp.ok && data.success) {
           statusBox.className = 'status-msg status-success';
           statusBox.innerHTML = '🎉 <b>登录与同步成功！</b><br>' +
@@ -393,13 +430,62 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
       }
     }
 
+    // 处理邮箱 6 位验证码提交
+    async function handleVerifyEmailCode() {
+      const emailCode = document.getElementById('email-code').value.trim();
+      const statusBox = document.getElementById('status-box');
+      const email = document.getElementById('email').value.trim();
+
+      if (!emailCode || emailCode.length < 4) {
+        alert('请输入收到的邮箱数字验证码！');
+        return;
+      }
+
+      statusBox.style.display = 'block';
+      statusBox.className = 'status-msg status-loading';
+      statusBox.innerHTML = '⏳ 正在核验邮箱验证码并同步云端...';
+
+      const verifyBtn = document.getElementById('btn-verify-email');
+      verifyBtn.disabled = true;
+
+      try {
+        const resp = await fetch('/api/verify-email-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email_code: emailCode,
+            session_cookie: savedSessionCookie,
+            email: email
+          })
+        });
+
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+          document.getElementById('email-code-box').style.display = 'none';
+          statusBox.className = 'status-msg status-success';
+          statusBox.innerHTML = '🎉 <b>邮箱验证成功，已完成全量同步！</b><br>' +
+            '⏳ 凭据有效期：<span class="badge-highlight">' + data.expire_desc + '</span><br>' +
+            '🚀 GitHub Actions：最新 7 天 Cookie 已就绪！<br>' +
+            '📲 <b>企业微信已收到最新的验证签到推送！</b>';
+        } else {
+          statusBox.className = 'status-msg status-error';
+          statusBox.innerHTML = '❌ <b>验证码核验失败：</b> ' + (data.error || '验证码错误或已失效');
+        }
+      } catch(err) {
+        statusBox.className = 'status-msg status-error';
+        statusBox.innerHTML = '❌ <b>请求异常：</b> ' + err.message;
+      } finally {
+        verifyBtn.disabled = false;
+      }
+    }
+
     // 剪贴板读取同步
     async function readClipboardAndSync() {
       const statusBox = document.getElementById('status-box');
       try {
         const text = await navigator.clipboard.readText();
         if (!text || (!text.includes('uid=') && !text.includes('key='))) {
-          alert('剪贴板中未检测到有效的 iKuuu Cookie（需包含 uid 或 key）！\\n请确认已复制 Cookie。');
+          alert('剪贴板中未检测到有效的 iKuuu Cookie（需包含 uid 或 key）！\\n请在 Safari 登录 iKuuu 后复制 Cookie。');
           return;
         }
 
@@ -435,7 +521,7 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
 // 辅助计算 Cookie 有效期剩余描述
 function parseCookieExpireDesc(cookieStr) {
   const m = cookieStr.match(/expire_in=(\d+)/);
-  if (!m) return "有效期未知";
+  if (!m) return "有效期未知 (长期有效)";
   const expTs = parseInt(m[1], 10);
   const nowTs = Math.floor(Date.now() / 1000);
   const diffSec = expTs - nowTs;
@@ -462,7 +548,7 @@ export default {
       });
     }
 
-    // 2. POST /api/login：代理 iKuuu 真实登录并自动抓取 Cookie 同步到 GitHub
+    // 2. POST /api/login：代理 iKuuu 真实登录
     if (request.method === "POST" && url.pathname === "/api/login") {
       try {
         const body = await request.json();
@@ -477,14 +563,12 @@ export default {
           });
         }
 
-        // 构造向 iKuuu 发起的真实登录表单
         const targetHost = env.IKUUU_HOST || "ikuuu.top";
         const loginUrl = `https://${targetHost}/auth/login`;
 
         const formParams = new URLSearchParams();
         formParams.set("email", email);
         formParams.set("passwd", passwd);
-        // 确保勾选“记住我”，同时兼容 remember_me 和 remember 参数
         const wantRemember = body.remember_me !== "" && body.remember_me !== false;
         if (wantRemember) {
           formParams.set("remember_me", "week");
@@ -511,7 +595,6 @@ export default {
           body: formParams.toString()
         });
 
-        // 提取响应中的所有 Cookie
         let setCookieHeaders = [];
         if (typeof ikuuuResp.headers.getSetCookie === "function") {
           setCookieHeaders = ikuuuResp.headers.getSetCookie();
@@ -536,6 +619,23 @@ export default {
           loginResult = { ret: 0, msg: "解析响应 JSON 失败: " + ikuuuResp.status };
         }
 
+        // 核心检测：是否需要邮箱两步验证
+        if (loginResult.phase === "email_code") {
+          const cookieParts = [];
+          for (const [k, v] of Object.entries(cookieMap)) {
+            cookieParts.push(`${k}=${v}`);
+          }
+          return new Response(JSON.stringify({
+            success: false,
+            need_email_code: true,
+            session_cookie: cookieParts.join("; "),
+            message: loginResult.msg || "为保护账号安全，本次登录需要邮箱验证。验证码已发送到账号邮箱，请输入 6 位验证码继续。"
+          }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
         const isSuccess = loginResult.ret === 1 || loginResult.phase === "authenticated" || cookieMap["uid"] || cookieMap["key"];
 
         if (!isSuccess) {
@@ -548,7 +648,6 @@ export default {
           });
         }
 
-        // 拼接完整的规范 Cookie 字符串
         const cookieParts = [];
         for (const [k, v] of Object.entries(cookieMap)) {
           cookieParts.push(`${k}=${v}`);
@@ -556,7 +655,6 @@ export default {
         const fullCookie = cookieParts.join("; ");
         const expireDesc = parseCookieExpireDesc(fullCookie);
 
-        // 异步分发至 GitHub Actions 触发更新与每日签到
         const ghRepo = env.GITHUB_REPO || "995william/ikuuu_checkIn";
         const ghToken = env.GITHUB_TOKEN;
 
@@ -599,7 +697,136 @@ export default {
       }
     }
 
-    // 3. POST /api/sync-cookie：接收外部或剪贴板直接传入的 Cookie
+    // 3. POST /api/verify-email-code：接收邮箱 6 位验证码完成二次核验
+    if (request.method === "POST" && url.pathname === "/api/verify-email-code") {
+      try {
+        const body = await request.json();
+        const emailCode = (body.email_code || "").trim();
+        const sessionCookie = body.session_cookie || "";
+        const email = body.email || "670607946@qq.com";
+
+        if (!emailCode) {
+          return new Response(JSON.stringify({ error: "请输入收到的 6 位邮箱验证码" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        const targetHost = env.IKUUU_HOST || "ikuuu.top";
+        const loginUrl = `https://${targetHost}/auth/login`;
+
+        const formParams = new URLSearchParams();
+        formParams.set("phase", "email_code");
+        formParams.set("email_code", emailCode);
+        formParams.set("host", targetHost);
+        formParams.set("remember_me", "week");
+        formParams.set("remember", "on");
+
+        const ikuuuResp = await fetch(loginUrl, {
+          method: "POST",
+          headers: {
+            "Host": targetHost,
+            "Origin": `https://${targetHost}`,
+            "Referer": `https://${targetHost}/auth/login`,
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+            "Cookie": sessionCookie
+          },
+          body: formParams.toString()
+        });
+
+        let setCookieHeaders = [];
+        if (typeof ikuuuResp.headers.getSetCookie === "function") {
+          setCookieHeaders = ikuuuResp.headers.getSetCookie();
+        } else {
+          const raw = ikuuuResp.headers.get("set-cookie") || "";
+          setCookieHeaders = raw.split(/,(?=[^;]+=[^;]+)/g);
+        }
+
+        const cookieMap = {};
+        for (const item of sessionCookie.split(";")) {
+          if (item.includes("=")) {
+            const [k, v] = item.split("=", 2);
+            if (k.trim()) cookieMap[k.trim()] = v.trim();
+          }
+        }
+        for (const h of setCookieHeaders) {
+          const part = h.split(";")[0].trim();
+          if (part && part.includes("=")) {
+            const [k, v] = part.split("=", 2);
+            cookieMap[k.trim()] = v.trim();
+          }
+        }
+
+        let verifyResult = {};
+        try {
+          verifyResult = await ikuuuResp.json();
+        } catch(e) {
+          verifyResult = { ret: 0, msg: "解析响应 JSON 失败" };
+        }
+
+        const isSuccess = verifyResult.ret === 1 || verifyResult.phase === "authenticated" || cookieMap["uid"] || cookieMap["key"];
+
+        if (!isSuccess) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: verifyResult.msg || "邮箱验证码错误或已失效，请重新获取"
+          }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        const cookieParts = [];
+        for (const [k, v] of Object.entries(cookieMap)) {
+          cookieParts.push(`${k}=${v}`);
+        }
+        const fullCookie = cookieParts.join("; ");
+        const expireDesc = parseCookieExpireDesc(fullCookie);
+
+        const ghRepo = env.GITHUB_REPO || "995william/ikuuu_checkIn";
+        const ghToken = env.GITHUB_TOKEN;
+
+        if (ghToken) {
+          ctx.waitUntil((async () => {
+            try {
+              const dispatchUrl = `https://api.github.com/repos/${ghRepo}/dispatches`;
+              await fetch(dispatchUrl, {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${ghToken}`,
+                  "Accept": "application/vnd.github.v3+json",
+                  "User-Agent": "iKuuu-Worker-Sync"
+                },
+                body: JSON.stringify({
+                  event_type: "update_cookie",
+                  client_payload: { cookie: fullCookie, email: email }
+                })
+              });
+            } catch(e) {
+              console.error("Dispatch to GitHub Actions failed:", e);
+            }
+          })());
+        }
+
+        return new Response(JSON.stringify({
+          success: true,
+          expire_desc: expireDesc,
+          message: "邮箱验证成功！Cookie 已同步至 GitHub Actions 并调起签到！"
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      } catch(err) {
+        return new Response(JSON.stringify({ error: "服务器异常: " + err.message }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+
+    // 4. POST /api/sync-cookie：接收外部或剪贴板直接传入的 Cookie
     if (request.method === "POST" && url.pathname === "/api/sync-cookie") {
       try {
         const body = await request.json();
