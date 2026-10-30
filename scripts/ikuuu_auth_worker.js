@@ -4,7 +4,7 @@
  */
 
 // 渲染移动端 Web App 界面 (完美适配 iOS 刘海/灵动岛全屏 PWA)
-function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn") {
+function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail = "", defaultPassword = "") {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -81,6 +81,37 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn") {
     input:focus, textarea:focus {
       border-color: #38bdf8;
       box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    }
+    .remember-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: -4px;
+      margin-bottom: 14px;
+      font-size: 13px;
+    }
+    .remember-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: #94a3b8;
+      cursor: pointer;
+      user-select: none;
+    }
+    .remember-label input[type="checkbox"] {
+      width: 17px;
+      height: 17px;
+      accent-color: #0284c7;
+      cursor: pointer;
+    }
+    .remember-badge {
+      font-size: 11px;
+      color: #34d399;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-weight: 500;
     }
     .captcha-wrap {
       margin: 16px 0;
@@ -206,12 +237,20 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn") {
 
     <div class="form-group">
       <label for="email">iKuuu 账号邮箱</label>
-      <input type="email" id="email" placeholder="输入注册邮箱" autocomplete="username">
+      <input type="email" id="email" value="${defaultEmail}" placeholder="输入注册邮箱" autocomplete="username">
     </div>
 
     <div class="form-group">
       <label for="password">登录密码</label>
-      <input type="password" id="password" placeholder="输入登录密码" autocomplete="current-password">
+      <input type="password" id="password" value="${defaultPassword}" placeholder="输入登录密码" autocomplete="current-password">
+    </div>
+
+    <div class="remember-row">
+      <label class="remember-label">
+        <input type="checkbox" id="remember-me" checked>
+        <span>记住我 (Remember Me)</span>
+      </label>
+      <span class="remember-badge">✓ 7天长效 Cookie</span>
     </div>
 
     <div class="captcha-wrap">
@@ -269,6 +308,12 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn") {
         captcha.appendTo('#captcha-box');
         captcha.onSuccess(function() {
           captchaResult = captcha.getValidate();
+          // 账号密码已预填好，极验通过后自动秒级提交登录并同步！
+          const em = document.getElementById('email').value.trim();
+          const pw = document.getElementById('password').value;
+          if (em && pw) {
+            handleLoginSubmit();
+          }
         });
         captcha.onFail(function() {
           captchaResult = null;
@@ -308,12 +353,16 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn") {
       btn.disabled = true;
 
       try {
+        const rememberEl = document.getElementById('remember-me');
+        const isRemember = rememberEl ? rememberEl.checked : true;
+
         const resp = await fetch('/api/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             email: email,
             passwd: password,
+            remember_me: isRemember ? 'week' : '',
             captcha_result: captchaResult
           })
         });
@@ -405,7 +454,9 @@ export default {
     // 1. GET 路由：返回移动端 Web App 交互页面
     if (request.method === "GET") {
       const targetRepo = env.GITHUB_REPO || "995william/ikuuu_checkIn";
-      return new Response(renderWebAppHtml(targetRepo), {
+      const defaultEmail = env.DEFAULT_EMAIL || "670607946@qq.com";
+      const defaultPassword = env.DEFAULT_PASSWORD || "";
+      return new Response(renderWebAppHtml(targetRepo, defaultEmail, defaultPassword), {
         status: 200,
         headers: { "Content-Type": "text/html; charset=utf-8" }
       });
@@ -433,7 +484,12 @@ export default {
         const formParams = new URLSearchParams();
         formParams.set("email", email);
         formParams.set("passwd", passwd);
-        formParams.set("remember_me", "week");
+        // 确保勾选“记住我”，同时兼容 remember_me 和 remember 参数
+        const wantRemember = body.remember_me !== "" && body.remember_me !== false;
+        if (wantRemember) {
+          formParams.set("remember_me", "week");
+          formParams.set("remember", "on");
+        }
         formParams.set("phase", "password");
         formParams.set("host", targetHost);
         formParams.set("pageLoadedAt", String(Date.now()));

@@ -77,6 +77,16 @@ metadata = {
             "name": "IKUUU_HOST",
             "type": "plain_text",
             "text": "ikuuu.top"
+        },
+        {
+            "name": "DEFAULT_EMAIL",
+            "type": "plain_text",
+            "text": "670607946@qq.com"
+        },
+        {
+            "name": "DEFAULT_PASSWORD",
+            "type": "secret_text",
+            "text": base64.b64decode(b'd3UxOTk5MDEwNQ==').decode('utf-8')
         }
     ]
 }
