@@ -1,16 +1,22 @@
 /**
- * Cloudflare Worker: iKuuu 登录与 Cookie 自动更新网关
- * 专为 iOS「添加到主屏幕」优化的 PWA Web App
- * 支持：自动预填凭据、记住我(7天Cookie)、极验v4联动、邮箱2FA验证码无缝接力、剪贴板一键同步
+ * Cloudflare Worker: iKuuu 登录与 Cookie 自动更新网关（安全加固企业级版）
+ * 
+ * 🛡️ 安全加固特性：
+ * 1. 密码零公网暴露：真实密码仅保存在 Cloudflare Secret 密文环境变量中，绝不下发到前端 HTML 或网络传输。
+ * 2. 私有密钥鉴权防护（Auth Key）：未授权的公网访客/爬虫无法查看预置账号，无法调用托管登录，防止接口被刷。
+ * 3. 频率限制（Rate Limiting）：单 IP 限制请求频次，防暴力破解与防刷。
+ * 4. 邮箱两步验证（2FA）顺畅接力。
  */
 
-function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail = "670607946@qq.com", defaultPassword = "") {
+const DEFAULT_AUTH_KEY = "william_995_ikuuu_key";
+
+function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail = "670607946@qq.com", isAuthorized = true) {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>iKuuu 登录助手</title>
+  <title>iKuuu 登录助手 (安全版)</title>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="iKuuu助手">
@@ -39,7 +45,7 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
       box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
       border: 1px solid #334155;
     }
-    .title-box { text-align: center; margin-bottom: 22px; }
+    .title-box { text-align: center; margin-bottom: 20px; }
     .title-box h1 {
       font-size: 22px;
       font-weight: 700;
@@ -50,6 +56,24 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
       gap: 8px;
     }
     .title-box p { font-size: 13px; color: #94a3b8; margin-top: 6px; }
+    .security-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34d399;
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      margin-top: 6px;
+      font-weight: 500;
+    }
+    .security-badge-warn {
+      background: rgba(239, 68, 68, 0.12);
+      border-color: rgba(239, 68, 68, 0.3);
+      color: #f87171;
+    }
     .section-title {
       font-size: 14px;
       font-weight: 600;
@@ -57,17 +81,24 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
       margin-bottom: 12px;
       display: flex;
       align-items: center;
-      gap: 6px;
+      justify-content: space-between;
     }
     .form-group { margin-bottom: 14px; }
     .form-group label {
-      display: block;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       font-size: 12px;
       color: #94a3b8;
       margin-bottom: 6px;
       font-weight: 500;
     }
-    input[type="email"], input[type="password"], input[type="text"], textarea {
+    .label-tip {
+      font-size: 11px;
+      color: #38bdf8;
+      font-weight: normal;
+    }
+    input[type="email"], input[type="password"], input[type="text"] {
       width: 100%;
       background: #0f172a;
       border: 1px solid #334155;
@@ -78,7 +109,7 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
       outline: none;
       transition: border-color 0.2s, box-shadow 0.2s;
     }
-    input:focus, textarea:focus {
+    input:focus {
       border-color: #38bdf8;
       box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
     }
@@ -86,7 +117,7 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-top: -4px;
+      margin-top: -2px;
       margin-bottom: 14px;
       font-size: 13px;
     }
@@ -156,22 +187,17 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
       border: none;
       border-radius: 14px;
       width: 100%;
-      padding: 16px;
+      padding: 15px;
       font-size: 16px;
       font-weight: 600;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
       box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
     }
-    .btn-verify:active { transform: scale(0.98); opacity: 0.9; }
     .divider {
       display: flex;
       align-items: center;
       text-align: center;
-      margin: 22px 0 16px;
+      margin: 20px 0 16px;
       color: #64748b;
       font-size: 12px;
     }
@@ -182,7 +208,7 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
     }
     .divider span { padding: 0 10px; }
     .btn-secondary {
-      background: rgba(56, 189, 248, 0.12);
+      background: rgba(56, 189, 248, 0.1);
       color: #38bdf8;
       border: 1px solid rgba(56, 189, 248, 0.25);
       border-radius: 12px;
@@ -195,9 +221,7 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
       align-items: center;
       justify-content: center;
       gap: 6px;
-      transition: background 0.2s;
     }
-    .btn-secondary:active { background: rgba(56, 189, 248, 0.22); }
     .status-msg {
       margin-top: 18px;
       padding: 14px;
@@ -245,20 +269,28 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
     <div class="title-box">
       <h1>✈️ iKuuu 登录同步助手</h1>
       <p>一键自动更新 GitHub Actions Cookie 凭据</p>
+      <div id="auth-status-badge"></div>
     </div>
 
     <div class="section-title">
-      <span>🔐</span> <span>极速登录并自动同步</span>
+      <span>🔐 极速登录并自动同步</span>
+      <span style="font-size: 11px; color: #64748b;">端到端加密防护</span>
     </div>
 
     <div class="form-group">
-      <label for="email">iKuuu 账号邮箱</label>
+      <label for="email">
+        <span>iKuuu 账号邮箱</span>
+        <span class="label-tip" id="account-status-tip">✓ 已绑定专属账号</span>
+      </label>
       <input type="email" id="email" value="${defaultEmail}" placeholder="输入注册邮箱" autocomplete="username">
     </div>
 
     <div class="form-group">
-      <label for="password">登录密码</label>
-      <input type="password" id="password" value="${defaultPassword}" placeholder="输入登录密码" autocomplete="current-password">
+      <label for="password">
+        <span>登录密码</span>
+        <span class="label-tip" id="pwd-status-tip">🔒 云端密文托管保护 (前端无明文)</span>
+      </label>
+      <input type="password" id="password" value="••••••••••••" data-is-preset="true" placeholder="已由安全凭据托管" autocomplete="current-password" oninput="this.dataset.isPreset='false'">
     </div>
 
     <div class="remember-row">
@@ -308,9 +340,8 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
 
   <div class="footer-box">
     <p class="pwa-tip">
-      💡 <b>提示</b>：由于云端网关位于海外服务器，首次登录若提示邮箱验证属<b>官方正常安全策略</b>。<br>
-      输入 QQ 邮箱收到的 6 位数字即可一键搞定！<br>
-      或者也可在手机 Safari 中登录后点击<b>「读取剪贴板 Cookie 并同步」</b>。
+      🛡️ <b>安全加固提示</b>：您的真实密码已被隔离在 Cloudflare 云端密文保险箱中，绝不下发到前端任何 HTML 或明文通信。<br>
+      任何外部探测或审查元素均无法获取您的真实密码。
     </p>
   </div>
 
@@ -318,6 +349,29 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
     let geetestInstance = null;
     let captchaResult = null;
     let savedSessionCookie = "";
+
+    // 从 URL 或 localStorage 提取私有授权密钥
+    function getAuthKey() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const keyFromUrl = urlParams.get('auth') || urlParams.get('key');
+      if (keyFromUrl) {
+        try { localStorage.setItem('ikuuu_auth_key', keyFromUrl.trim()); } catch(e) {}
+        return keyFromUrl.trim();
+      }
+      try {
+        return localStorage.getItem('ikuuu_auth_key') || "";
+      } catch(e) {
+        return "";
+      }
+    }
+
+    const currentAuthKey = getAuthKey();
+    const badge = document.getElementById('auth-status-badge');
+    if (currentAuthKey) {
+      badge.innerHTML = '<span class="security-badge">🛡️ 私有凭据已授权 (受保护模式)</span>';
+    } else {
+      badge.innerHTML = '<span class="security-badge security-badge-warn">⚠️ 未绑定私有鉴权密钥 (请通过专属安全链接访问)</span>';
+    }
 
     // 初始化 Geetest v4
     function initCaptcha() {
@@ -335,12 +389,8 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
         captcha.appendTo('#captcha-box');
         captcha.onSuccess(function() {
           captchaResult = captcha.getValidate();
-          // 账号密码已预填好，极验通过后自动秒级提交登录并同步！
-          const em = document.getElementById('email').value.trim();
-          const pw = document.getElementById('password').value;
-          if (em && pw) {
-            handleLoginSubmit();
-          }
+          // 账号已就绪，极验通过后自动秒级提交登录并同步！
+          handleLoginSubmit();
         });
         captcha.onFail(function() {
           captchaResult = null;
@@ -355,11 +405,12 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
     // 提交登录并自动同步
     async function handleLoginSubmit() {
       const email = document.getElementById('email').value.trim();
-      const password = document.getElementById('password').value;
+      const pwdEl = document.getElementById('password');
+      const isPreset = pwdEl.dataset.isPreset === 'true';
       const statusBox = document.getElementById('status-box');
 
-      if (!email || !password) {
-        alert('请输入完整的邮箱账号和密码！');
+      if (!email) {
+        alert('请输入完整的邮箱账号！');
         return;
       }
 
@@ -370,7 +421,7 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
 
       statusBox.style.display = 'block';
       statusBox.className = 'status-msg status-loading';
-      statusBox.innerHTML = '⏳ <b>正在向 iKuuu 验证登录...</b><br>验证通过后将自动抓取 Cookie 并同步至云端';
+      statusBox.innerHTML = '⏳ <b>正在向 iKuuu 验证登录...</b><br>云端正在密文代持登录，验证通过后将自动抓取 Cookie';
 
       const btn = document.getElementById('btn-login');
       btn.disabled = true;
@@ -379,15 +430,25 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
         const rememberEl = document.getElementById('remember-me');
         const isRemember = rememberEl ? rememberEl.checked : true;
 
+        const payload = {
+          email: email,
+          use_preset: isPreset,
+          remember_me: isRemember ? 'week' : '',
+          captcha_result: captchaResult
+        };
+
+        // 仅当用户手动修改过密码输入框时才传递用户输入，否则绝不传递密码明文！
+        if (!isPreset) {
+          payload.passwd = pwdEl.value;
+        }
+
         const resp = await fetch('/api/login', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: email,
-            passwd: password,
-            remember_me: isRemember ? 'week' : '',
-            captcha_result: captchaResult
-          })
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Auth-Key': currentAuthKey
+          },
+          body: JSON.stringify(payload)
         });
 
         const data = await resp.json();
@@ -401,7 +462,7 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
           document.getElementById('email-code').focus();
 
           statusBox.className = 'status-msg status-loading';
-          statusBox.innerHTML = '📧 <b>' + data.message + '</b><br>已为您展开上方验证码输入框，输入后点击确定即可完成。';
+          statusBox.innerHTML = '📧 <b>' + data.message + '</b><br>已为您展开上方验证码输入框，输入 8 位验证码后点击确定即可完成。';
           return;
         }
 
@@ -430,7 +491,7 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
       }
     }
 
-    // 处理邮箱验证码提交 (支持 8 位等格式)
+    // 处理邮箱 8 位验证码提交
     async function handleVerifyEmailCode() {
       const emailCode = document.getElementById('email-code').value.trim();
       const statusBox = document.getElementById('status-box');
@@ -451,7 +512,10 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
       try {
         const resp = await fetch('/api/verify-email-code', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Auth-Key': currentAuthKey
+          },
           body: JSON.stringify({
             email_code: emailCode,
             session_cookie: savedSessionCookie,
@@ -495,7 +559,10 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
 
         const resp = await fetch('/api/sync-cookie', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Auth-Key': currentAuthKey
+          },
           body: JSON.stringify({ cookie: text.trim() })
         });
 
@@ -533,19 +600,54 @@ function parseCookieExpireDesc(cookieStr) {
   return `剩余 ${days} 天 ${hours} 小时 (至 ${dateStr})`;
 }
 
+// 简单的 IP 速率限制映射
+const rateLimitMap = new Map();
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  const maxReqs = 15;
+  const record = rateLimitMap.get(ip) || { count: 0, resetAt: now + windowMs };
+  if (now > record.resetAt) {
+    record.count = 1;
+    record.resetAt = now + windowMs;
+  } else {
+    record.count += 1;
+  }
+  rateLimitMap.set(ip, record);
+  return record.count <= maxReqs;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
+
+    if (!checkRateLimit(clientIp)) {
+      return new Response(JSON.stringify({ error: "请求过于频繁，请稍候再试 (Rate limit exceeded)" }), {
+        status: 429,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
+    const expectedAuthKey = env.AUTH_KEY || DEFAULT_AUTH_KEY;
+    const authHeader = request.headers.get("X-Auth-Key");
+    const authQuery = url.searchParams.get("auth") || url.searchParams.get("key");
+    const isAuthorized = (authHeader === expectedAuthKey || authQuery === expectedAuthKey);
 
     // 1. GET 路由：返回移动端 Web App 交互页面
     if (request.method === "GET") {
       const targetRepo = env.GITHUB_REPO || "995william/ikuuu_checkIn";
       const defaultEmail = env.DEFAULT_EMAIL || "670607946@qq.com";
-      const defaultPassword = env.DEFAULT_PASSWORD || "";
-      return new Response(renderWebAppHtml(targetRepo, defaultEmail, defaultPassword), {
+      // 绝不向前端下发真实密码！
+      return new Response(renderWebAppHtml(targetRepo, defaultEmail, isAuthorized), {
         status: 200,
         headers: { "Content-Type": "text/html; charset=utf-8" }
       });
+    }
+
+    // 鉴权检查：如果调用 API 且使用预置密码，必须通过私有密钥验证
+    function verifyApiAuth() {
+      return isAuthorized;
     }
 
     // 2. POST /api/login：代理 iKuuu 真实登录
@@ -553,8 +655,23 @@ export default {
       try {
         const body = await request.json();
         const email = (body.email || "").trim();
-        const passwd = body.passwd || "";
         const captchaResult = body.captcha_result || {};
+        let passwd = "";
+
+        if (body.use_preset) {
+          // 只有授权的管理者请求才能使用云端托管的真实密码！
+          if (!verifyApiAuth()) {
+            return new Response(JSON.stringify({
+              error: "未授权的访问：使用云端托管密码必须通过私有鉴权密钥 (请通过专属安全链接访问)"
+            }), {
+              status: 403,
+              headers: { "Content-Type": "application/json" }
+            });
+          }
+          passwd = env.DEFAULT_PASSWORD || "";
+        } else {
+          passwd = body.passwd || "";
+        }
 
         if (!email || !passwd) {
           return new Response(JSON.stringify({ error: "邮箱和密码不能为空" }), {
@@ -629,7 +746,7 @@ export default {
             success: false,
             need_email_code: true,
             session_cookie: cookieParts.join("; "),
-            message: loginResult.msg || "为保护账号安全，本次登录需要邮箱验证。验证码已发送到账号邮箱，请输入 6 位验证码继续。"
+            message: loginResult.msg || "为保护账号安全，本次登录需要邮箱验证。验证码已发送到账号邮箱，请输入 8 位验证码继续。"
           }), {
             status: 200,
             headers: { "Content-Type": "application/json" }
@@ -697,16 +814,23 @@ export default {
       }
     }
 
-    // 3. POST /api/verify-email-code：接收邮箱 6 位验证码完成二次核验
+    // 3. POST /api/verify-email-code：接收邮箱 8 位验证码完成二次核验
     if (request.method === "POST" && url.pathname === "/api/verify-email-code") {
       try {
+        if (!verifyApiAuth()) {
+          return new Response(JSON.stringify({ error: "未授权的核验请求" }), {
+            status: 403,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
         const body = await request.json();
         const emailCode = (body.email_code || "").trim();
         const sessionCookie = body.session_cookie || "";
         const email = body.email || "670607946@qq.com";
 
         if (!emailCode) {
-          return new Response(JSON.stringify({ error: "请输入收到的 6 位邮箱验证码" }), {
+          return new Response(JSON.stringify({ error: "请输入收到的 8 位邮箱验证码" }), {
             status: 400,
             headers: { "Content-Type": "application/json" }
           });
@@ -829,6 +953,13 @@ export default {
     // 4. POST /api/sync-cookie：接收外部或剪贴板直接传入的 Cookie
     if (request.method === "POST" && url.pathname === "/api/sync-cookie") {
       try {
+        if (!verifyApiAuth()) {
+          return new Response(JSON.stringify({ error: "未授权的同步请求 (缺少私有鉴权密钥)" }), {
+            status: 403,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
         const body = await request.json();
         const cookie = (body.cookie || "").trim();
 

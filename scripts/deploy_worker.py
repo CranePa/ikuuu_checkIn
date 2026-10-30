@@ -87,6 +87,11 @@ metadata = {
             "name": "DEFAULT_PASSWORD",
             "type": "secret_text",
             "text": base64.b64decode(b'd3UxOTk5MDEwNQ==').decode('utf-8')
+        },
+        {
+            "name": "AUTH_KEY",
+            "type": "secret_text",
+            "text": "william_995_ikuuu_key"
         }
     ]
 }
