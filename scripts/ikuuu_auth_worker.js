@@ -274,12 +274,12 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
       <div style="background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 12px; padding: 12px; margin-bottom: 12px;">
         <p style="font-size: 13px; color: #38bdf8; line-height: 1.5;">
           🛡️ <b>已触发异地登录保护</b><br>
-          验证码已发送至您的 QQ 邮箱，请输入收到的 <b>6 位验证码</b> 即可完成同步：
+          验证码已发送至您的 QQ 邮箱，请输入收到的 <b>8 位验证码</b> 即可完成同步：
         </p>
       </div>
       <div class="form-group" style="margin-bottom: 12px;">
-        <label for="email-code" style="color: #38bdf8; font-weight: 600;">📧 6 位邮箱验证码</label>
-        <input type="text" id="email-code" placeholder="输入 6 位数字验证码" maxlength="6" inputmode="numeric" style="letter-spacing: 5px; font-size: 20px; text-align: center; font-weight: 700; color: #38bdf8;">
+        <label for="email-code" style="color: #38bdf8; font-weight: 600;">📧 8 位邮箱验证码</label>
+        <input type="text" id="email-code" placeholder="输入 8 位验证码" maxlength="16" onkeydown="if(event.keyCode===13)handleVerifyEmailCode()" style="letter-spacing: 3px; font-size: 19px; text-align: center; font-weight: 700; color: #38bdf8;">
       </div>
       <button class="btn-verify" id="btn-verify-email" onclick="handleVerifyEmailCode()">
         ✅ 提交邮箱验证码并同步
@@ -430,14 +430,14 @@ function renderWebAppHtml(targetRepo = "995william/ikuuu_checkIn", defaultEmail 
       }
     }
 
-    // 处理邮箱 6 位验证码提交
+    // 处理邮箱验证码提交 (支持 8 位等格式)
     async function handleVerifyEmailCode() {
       const emailCode = document.getElementById('email-code').value.trim();
       const statusBox = document.getElementById('status-box');
       const email = document.getElementById('email').value.trim();
 
       if (!emailCode || emailCode.length < 4) {
-        alert('请输入收到的邮箱数字验证码！');
+        alert('请输入收到的邮箱验证码！');
         return;
       }
 
